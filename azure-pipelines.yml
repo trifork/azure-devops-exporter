@@ -1,19 +1,64 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+# Gradle
+# Build your Java project and run tests with Gradle using a Gradle wrapper script.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
 
 trigger:
-- main
+  branches:
+    include:
+      - main
+      
+
+variables:
+  - name: containerRegistry
+    value: falcon-container-registry
+  - name: imageRepository
+    value: trifork/falcon-azure-devops-exporter
+  - name: sourceBranchName
+    value: ${{split(variables['Build.SourceBranch'], '/')[2]}}
+
+name: ${{variables.sourceBranchName}}-$(SourceBranchName)-build-$(Build.BuildId)
 
 pool:
   vmImage: ubuntu-latest
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+stages:
+  - stage: Build
+    jobs:
+      - job: azure_devops_exporter
+        steps:
+          - task: Docker@2
+            displayName: Login to DockerHub
+            inputs:
+              command: login
+              containerRegistry: ${{ variables.containerRegistry }}
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+          - task: Docker@2
+            displayName: Build an image
+            inputs:
+              containerRegistry: ${{ variables.containerRegistry }}
+              repository: ${{ variables.imageRepository }}
+              tags: |
+                latest
+                build-$(Build.BuildId)
+                $(Build.BuildNumber)
+                ${{ variables.sourceBranchName }}-build-$(Build.BuildId)
+                $(Build.SourceVersion)
+              command: build
+              Dockerfile: Dockerfile
+              buildContext: .
+            condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+
+          - task: Docker@2
+            displayName: Push image to DockerHub
+            inputs:
+              containerRegistry: ${{ variables.containerRegistry }}
+              repository: ${{ variables.imageRepository }}
+              command: push
+              tags: |
+                latest
+                build-$(Build.BuildId)
+                $(Build.BuildNumber)
+                ${{ variables.sourceBranchName }}-build-$(Build.BuildId)
+                $(Build.SourceVersion)
+            condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
